@@ -1,3 +1,12 @@
 packages:
   - "apps/*"
   - "packages/*"
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  nx: true
+  sharp: true
+minimumReleaseAgeExclude:
+  - '@playwright/test@1.61.0'
+  - playwright-core@1.61.0
+  - playwright@1.61.0

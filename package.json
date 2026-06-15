@@ -11,14 +11,14 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {
-    "@nx/eslint": "21.1.2",
-    "@nx/js": "21.1.2",
-    "@nx/next": "21.1.2",
-    "@types/node": "24.10.3",
-    "nx": "21.1.2",
-    "prettier": "3.7.4",
-    "tsx": "4.19.4",
-    "typescript": "5.9.3"
+    "@nx/eslint": "22.7.5",
+    "@nx/js": "22.7.5",
+    "@nx/next": "22.7.5",
+    "@types/node": "25.9.3",
+    "nx": "22.7.5",
+    "prettier": "3.8.4",
+    "tsx": "4.22.4",
+    "typescript": "6.0.3"
   },
-  "packageManager": "pnpm@9.15.4"
+  "packageManager": "pnpm@11.7.0"
 }
