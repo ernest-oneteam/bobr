@@ -98,10 +98,11 @@ Next build ID reduces churn but is not a content-derived deployment identifier.
 
 ## Hosted acceptance still required
 
-Follow [the setup guide](BAZEL_DEPLOYMENT.md) after reconnecting the intended
-Vercel account. Configure two project IDs, deployment credentials and the chosen
-shared cache. Then verify preview and production separately, including the
-runtime behavior of both apps.
+The `bobr-web` and `bobr-docs` projects exist under `0xVentures`, and their IDs
+are configured in the CI fork. Follow [the setup guide](BAZEL_DEPLOYMENT.md) to
+add the deployment credential, enable deployment and configure the chosen shared
+cache. Then verify preview and production separately, including the runtime
+behavior of both apps.
 
 Use consecutive PR commits to check unused-export reuse, used-export rebuilding
 and effect invalidation through the configured provider. Check a clean Linux

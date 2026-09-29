@@ -7,20 +7,21 @@ CI archives that same output, and the deployment job calls `vercel deploy
 See Vercel's [build command](https://vercel.com/docs/cli/build) and
 [prebuilt deployment](https://vercel.com/docs/cli/deploy#prebuilt).
 
-## Connect the intended account
+## Vercel projects and CI credentials
 
-The account connected during this evaluation returned no teams or projects.
-Reconnect the Vercel integration to the account that owns this project. That
-connection lets the assistant inspect projects; GitHub Actions needs its own
-credentials below. Do not put tokens in chat or in this repository.
+The `0xVentures` team owns [bobr-web](https://vercel.com/0xventures/bobr-web)
+for `apps/web` and [bobr-docs](https://vercel.com/0xventures/bobr-docs) for
+`apps/docs`. Both use Node 22, matching the checked-in `vercel-build.json`.
+Neither project has a Git repository connection, so pushes do not trigger
+independent Vercel builds. Keep deployment on the Actions path.
 
-Create or select two Vercel projects for `apps/web` and `apps/docs`. Match their
-Node version to the checked-in `vercel-build.json`, currently Node 22. Disable
-automatic Vercel Git builds for this branch/repository when enabling the Actions
-deployment path, or Vercel's Git integration will still build independently.
+The local Vercel CLI authenticated to the intended account and created these
+projects. Its credentials are separate from the Vercel connector and GitHub
+Actions. Do not put tokens in chat or in this repository.
 
-Configure these GitHub Actions repository variables and secret on the repository
-that runs CI. The fork currently has none configured.
+The team and both project IDs are configured as Actions variables on
+`ernest-oneteam/bobr`, where CI runs. Add a deployment token as `VERCEL_TOKEN`,
+then set `VERCEL_DEPLOY_ENABLED=1`. Deployment remains disabled until then.
 
 | Setting                  | Kind     | Value                             |
 | ------------------------ | -------- | --------------------------------- |
@@ -83,7 +84,7 @@ The local HTTP experiment proves cache restoration between independent Bazel
 clients. It does not prove the selected provider's authentication or eviction
 policy. The local artifact tests do not emulate all Vercel routing, protection,
 edge features or runtime settings. Production deployment and hosted smoke tests
-remain pending until the correct account and projects are available.
+remain pending until the deployment credential is configured and CI deploys.
 
 An unaffected commit reuses the artifact and browser result. The deployment
 job can still create a deployment record for that commit using the same bytes.
