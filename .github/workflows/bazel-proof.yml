@@ -31,9 +31,12 @@ jobs:
           node-version: 22
       - run: npm install -g @bazel/bazelisk
         if: steps.changes.outputs.required == 'true'
-      - name: Prove unused exports skip the real Next builds
+      - name: Install browser system libraries
         if: steps.changes.outputs.required == 'true'
-        run: python3 scripts/prove-next-invalidation.py --directory "${{ runner.temp }}/bobr-next-proof"
+        run: npx --yes playwright@1.61.0 install-deps chromium
+      - name: Prove unused exports skip Next and Playwright
+        if: steps.changes.outputs.required == 'true'
+        run: python3 scripts/prove-next-invalidation.py --remote --browser --directory "${{ runner.temp }}/bobr-next-proof"
       - name: Save action evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -41,6 +44,7 @@ jobs:
           name: next-invalidation-evidence
           path: |
             ${{ runner.temp }}/bobr-next-proof/results.json
+            ${{ runner.temp }}/bobr-next-proof/remote-cache-evidence.json
             ${{ runner.temp }}/bobr-next-proof/*.log
             ${{ runner.temp }}/bobr-next-proof/*.actions.json
           if-no-files-found: ignore

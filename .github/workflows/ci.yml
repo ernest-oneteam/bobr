@@ -9,30 +9,41 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   bazel:
     name: Build & test (Bazel)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      BAZEL_REMOTE_CACHE: ${{ vars.BAZEL_REMOTE_CACHE }}
+      # Only trusted pushes get writer credentials. PRs require a backend-enforced
+      # read-only credential; fork PRs receive no secrets from GitHub.
+      BAZEL_REMOTE_HEADER: ${{ github.event_name == 'push' && secrets.BAZEL_REMOTE_WRITE_HEADER || secrets.BAZEL_REMOTE_READ_HEADER }}
+      BAZEL_REMOTE_UPLOAD: ${{ github.event_name == 'push' && '1' || '0' }}
+      DEPLOY_TARGET: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Test proof scheduling
-        run: python3 -m unittest discover -s scripts -p 'test_next_proof_trigger.py'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - name: Check CI helper behavior
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Install Bazelisk
-        run: npm install -g @bazel/bazelisk
-
-      # The cache key is scoped to the lockfiles; restore-keys let a PR reuse the
-      # cache produced by an earlier run (including main's), which is exactly how
-      # "unaffected targets come from cache across branches" is demonstrated.
-      - name: Cache Bazel disk + repository cache
+      - name: Install Bazelisk and browser system libraries
+        run: |
+          npm install -g @bazel/bazelisk
+          npx --yes playwright@1.61.0 install-deps chromium
+      - name: Configure cache access
+        env:
+          PUBLIC_CACHE: ${{ vars.BAZEL_REMOTE_PUBLIC_READ }}
+        run: |
+          if [ -z "$BAZEL_REMOTE_HEADER" ] && [ "$PUBLIC_CACHE" != "1" ]; then
+            echo 'BAZEL_REMOTE_CACHE=' >> "$GITHUB_ENV"
+          fi
+      - name: Cache Bazel disk and downloads
         uses: actions/cache@v4
         with:
           path: |
@@ -42,14 +53,25 @@ jobs:
           restore-keys: |
             bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel.lock', 'pnpm-lock.yaml') }}-
             bazel-${{ runner.os }}-
-
-      - name: Build everything
-        run: bazel build //... --repository_cache=~/.bazel-repo
-
-      # The process summary line (e.g. "12 processes: 10 disk cache hit, 2 ...")
-      # is Bazel's own proof of how much CI work was skipped this run.
-      - name: Test everything
-        run: bazel test //... --repository_cache=~/.bazel-repo
+      - name: Build and test deployable artifacts
+        run: python3 scripts/bazel.py test //... --repository_cache="$HOME/.bazel-repo" --define="deploy_env=$DEPLOY_TARGET"
+      - name: Package the tested artifacts
+        run: |
+          mkdir -p artifacts
+          for app in web docs; do
+            cp "bazel-bin/apps/$app/vercel_output.tar" "artifacts/$app.tar"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vercel-output
+          path: artifacts/*.tar
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-evidence
+          path: bazel-testlogs/packages/*-e2e/test/
+          if-no-files-found: ignore
 
   typecheck:
     name: Application type checks
@@ -63,5 +85,46 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Check original sources independently of the tree-shaken runtime build.
       - run: pnpm --filter web --filter docs --filter @repo/ui check-types
+
+  deploy:
+    name: Deploy tested ${{ matrix.app }} artifact
+    needs: [bazel, typecheck]
+    # Enable after configuring the account. Fork PRs never receive deployment
+    # credentials. The bazel branch preview deploys on push to avoid duplicates.
+    if: >-
+      vars.VERCEL_DEPLOY_ENABLED == '1' &&
+      (github.event_name == 'push' ||
+       (github.event.pull_request.head.repo.full_name == github.repository &&
+        github.head_ref != 'bazel'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        app: [web, docs]
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: vercel-output
+          path: artifacts
+      - name: Extract tested artifact
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          mkdir -p deployment/.vercel/output
+          tar -xf "artifacts/$APP.tar" -C deployment/.vercel/output
+      - name: Deploy without rebuilding
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ matrix.app == 'web' && vars.VERCEL_WEB_PROJECT_ID || vars.VERCEL_DOCS_PROJECT_ID }}
+          DEPLOY_TARGET: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+        run: node scripts/deploy-vercel.cjs deployment "$DEPLOY_TARGET"

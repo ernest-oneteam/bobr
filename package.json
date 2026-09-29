@@ -2,14 +2,15 @@
   "name": "turbo-2",
   "private": true,
   "scripts": {
-    "build": "nx run-many -t build",
+    "build": "python3 scripts/bazel.py build //...",
     "dev": "nx run-many -t dev",
     "lint": "nx run-many -t lint",
     "check-types": "nx run-many -t check-types",
-    "e2e:test": "nx run-many -t build --output-style=stream && tsx scripts/hash-build.ts && nx run-many -t e2e:test --output-style=stream",
+    "e2e:test": "python3 scripts/bazel.py test //packages/web-e2e:test //packages/docs-e2e:test",
     "ci:affected": "tsx scripts/ci-affected.ts",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "test:bazel-next": "python3 scripts/prove-next-invalidation.py"
+    "test:bazel-next": "python3 scripts/prove-next-invalidation.py --remote --browser",
+    "test": "python3 scripts/bazel.py test //..."
   },
   "devDependencies": {
     "@nx/eslint": "22.7.5",
@@ -19,8 +20,10 @@
     "esbuild": "0.28.1",
     "nx": "22.7.5",
     "prettier": "3.8.4",
+    "tar": "7.5.22",
     "tsx": "4.22.4",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vercel": "61.0.0"
   },
   "packageManager": "pnpm@11.7.0"
 }

@@ -4,32 +4,27 @@ Bóbr tests whether a TypeScript monorepo can skip work when shared code changes
 without affecting an app. Bazel owns cache keys. Developers write ordinary
 imports, including imports through a barrel.
 
-## Prove it against Next
+## Development and CI
 
 ```bash
-pnpm test:bazel-next
-# Or, without installing workspace dependencies:
-python3 scripts/prove-next-invalidation.py
+pnpm install
+pnpm dev                     # Next dev servers use the original sources
+pnpm build                   # Bazel builds both Vercel artifacts
+pnpm test                    # Unit, projection and artifact browser tests
+pnpm e2e:test                # Just the artifact browser tests
+pnpm test:bazel-next          # Disposable mutation and remote-cache experiment
 ```
 
-The script copies the current working tree into a temporary directory and runs
-real `next build --webpack` actions. It changes files only in that copy, then
-checks Bazel's execution logs and hashes the complete output directories as
-test evidence. Those hashes do not control the build cache.
+Install Bazelisk before using the Bazel commands. The browser targets support
+Linux x64 and macOS arm64. Linux also needs Chromium's system libraries, which
+CI installs with `pnpm exec playwright install-deps chromium` from an e2e package.
+Bazel downloads the pinned browser. After updating Playwright, run
+`node scripts/update-chromium.cjs` to generate its version and archive hashes.
 
-| Edit                                                | Web Next build | Docs Next build |
-| --------------------------------------------------- | -------------- | --------------- |
-| Unused export through the utility barrel            | Skipped        | Skipped         |
-| Unused export in the same module as `add`           | Skipped        | Skipped         |
-| Used `add` implementation                           | Executes       | Skipped         |
-| Used `sub` implementation                           | Skipped        | Executes        |
-| Side effect in an unused barrel branch              | Executes       | Executes        |
-| Change that side effect                             | Executes       | Executes        |
-| Delete local build outputs, restore from disk cache | Cache hit      | Cache hit       |
-
-The proof also checks that retained effects appear in Next's browser chunks
-and that Next's declared inputs contain no raw `@repo/ui` source package.
-Each run prints the location of its JSON report and full action logs.
+`pnpm build`, `pnpm test` and CI use `scripts/bazel.py`. It reads shared-cache
+configuration from the environment and otherwise uses the local disk cache.
+Developers do not calculate build hashes. `pnpm dev` does not populate production
+build cache entries. Run `pnpm build` or `pnpm test` to do that.
 
 ## The build boundary
 
@@ -40,63 +35,77 @@ App imports + complete UI sources
              |
   App-specific ui_runtime tree
              |
-       NextBuild, webpack
+  NextBuild, vercel build --standalone
              |
-            .next
+     .next + vercel_output
+                    |
+           Playwright artifact tests
+                    |
+           vercel deploy --prebuilt
 ```
 
-`UiProjection` reads app imports and bundles the utility barrel with only the
-exports that app requests. It preserves module side effects, even when the
-source package declares `sideEffects: false` or contains `PURE` annotations.
-Namespace imports retain all exports. React components keep their original
-files and directives.
+`UiProjection` follows imports into reachable UI components and bundles the
+utility barrel with only the requested exports. Unreachable component files
+never enter Next's input tree. Reachable React files retain their directives
+and contents. Utility module side effects remain, including effects in unused
+barrel branches and relative side-effect imports. The projection ignores
+`sideEffects: false` and `PURE` annotations when retaining those effects.
 
 An unused export edit reruns the projection. If it produces identical files,
-Bazel reuses the existing Next artifact. This avoids executing Next at all,
-so Next's nondeterministic output does not enter the comparison. No manifest
-stripping, hand-maintained export hashes, or per-commit build IDs are involved.
+Bazel reuses the existing Next and Vercel output and cached browser test result.
+Next's output can be nondeterministic because no second Next build executes on
+that cache hit. No output normalization or developer-maintained semantic hashes
+control this decision.
 
-Both apps call the shared `next_app_build` macro. Their source still imports
-`@repo/ui/utils`; developers do not list used exports in BUILD files. The
-projection supports local TypeScript utility modules with static ESM imports.
-It rejects direct utility subpaths, computed app imports, dynamic imports inside
-utilities, and React/server directives inside utilities. This is a bounded PoC,
-not a general Next module optimizer. Adding a new Bazel subpackage still requires
-including its sources in the UI source aggregation.
+The tests run the generated Vercel function handlers and static files from an
+isolated copy. They check hydration, calculator updates, navigation, API calls
+and 404 responses. The local adapter implements this PoC's routes; a hosted
+preview still needs validation against Vercel's routing and environment.
 
-## Commands
+## Prove invalidation
 
 ```bash
-bazel build //...
-bazel test //apps/web:test //apps/docs:test //tools/bazel:project_ui_test
-python3 scripts/prove-next-invalidation.py
+# No pnpm install required; Bazel supplies the build tools.
+python3 scripts/prove-next-invalidation.py --remote --browser
 ```
 
-The older `scripts/bazel-cache-demo.sh` demonstrates the separate TypeScript
-unit-test cache. The Next proof above covers the barrel behavior in the actual
-apps. `pnpm dev` continues to use the source package directly.
+The proof changes only a disposable copy of the working tree. It checks actual
+`NextBuild` and `TestRunner` actions, compares complete intermediate and output
+trees, and saves JSON evidence with execution logs.
 
-Bazel consumes `pnpm-lock.yaml` through rules_js. The projection pins esbuild
-`0.28.1`. Ordinary CI builds and tests with Bazel and checks the full app and UI
-types through pnpm. The eleven-case Next invalidation experiment runs separately
-for build-system changes, weekly, or manually. Follow-up PR commits compare
-against the previous head so app-only edits can skip the experiment.
+| Edit                                                | Web build and browser tests | Docs build and browser tests |
+| --------------------------------------------------- | --------------------------- | ---------------------------- |
+| Add or change an unreachable UI component           | Reused                      | Reused                       |
+| Change an unused export through the utility barrel  | Reused                      | Reused                       |
+| Change an unused export in the same module as `add` | Reused                      | Reused                       |
+| Change used `add`                                   | Execute                     | Reused                       |
+| Change used `sub`                                   | Reused                      | Execute                      |
+| Add or change a reachable module side effect        | Execute                     | Execute                      |
+| Start a fresh client with only HTTP cache access    | Cache hit                   | Cache hit                    |
 
-## Remaining work
+The HTTP fixture uses separate producer and consumer Bazel output bases, no
+disk cache, and a consumer that cannot upload results. This tests the remote
+cache protocol locally. It does not establish access to a hosted cache provider.
+The expensive experiment runs for build-system changes, weekly, or manually.
+Follow-up PR commits compare against the previous head so ordinary app edits
+can skip the experiment.
 
-The verified cache restoration uses a local disk CAS on macOS arm64. The actions
-are eligible for the configured remote cache, but this proof does not establish
-artifact portability across machines or deployment environments. Build-time
-configuration and fetched data need declared inputs before using this for apps
-that depend on them.
+## Deployment and limits
 
-Vercel Build Output packaging, deployment reuse, and Playwright checks against
-the deployed artifact are not wired yet. Next's build skips application type
-checking; CI checks original sources in a separate job. Those type-check results
-are not yet cached by Bazel. Unreachable UI components still cause conservative
-invalidation. See [the evaluation](spec/BAZEL_EVALUATION.md) for the remaining gaps.
+See [the setup guide](spec/BAZEL_DEPLOYMENT.md) for the shared cache, Vercel
+account and GitHub configuration. CI packages the tested Linux artifact and
+can deploy it without another build. Deployment stays disabled until the
+intended Vercel account, projects and credentials are configured.
 
-See [the migration notes](spec/BAZEL_MIGRATION.md) for the Bazel graph and cache
-mechanics. The earlier Nx and output-hashing approach remains in
-[the optimization plan](spec/OPTIMIZATION_PLAN.md) and
-[the hashing strategy](spec/HASHING_STRATEGY.md).
+This remains a bounded PoC. It shakes utility exports, not individual exports
+inside reachable React component modules. Namespace imports retain all utility
+exports. Unsupported computed imports, asset lookups, utility leaf imports and
+shared UI styles fail explicitly. New app source directories, framework hooks,
+npm dependencies and Bazel subpackages can require build-rule changes.
+Build-time environment values and fetched content must become declared inputs
+before adding them to these apps. Full source type checks run separately in CI.
+
+See [the evaluation](spec/BAZEL_EVALUATION.md) for evidence and remaining gaps.
+[The migration notes](spec/BAZEL_MIGRATION.md) describe the original graph.
+[The optimization plan](spec/OPTIMIZATION_PLAN.md) and
+[hashing strategy](spec/HASHING_STRATEGY.md) record the earlier Nx approach.

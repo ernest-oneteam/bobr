@@ -2,8 +2,9 @@ import path from "node:path";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  outputFileTracingRoot: path.resolve("../.."),
   transpilePackages: ["@repo/ui"],
-  // The current Bazel tests check utility logic, not the full application.
+  // CI checks original TypeScript sources separately from the runtime build.
   typescript: { ignoreBuildErrors: true },
   // A fixed ID reduces output churn but does not make Next reproducible.
   generateBuildId: async () => process.env.BOBR_BUILD_ID || "bobr-static",

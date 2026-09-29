@@ -39,15 +39,70 @@ async function projectUi(app, source, output) {
       true,
     );
   }
-  for (const file of [
-    ...files(app),
-    ...files(path.join(source, "src")).filter(
-      (f) => !f.startsWith(path.join(source, "src/utils") + path.sep),
-    ),
-  ]) {
+  const uiRoot = path.join(source, "src");
+  const reachable = new Set();
+  const queue = files(app);
+  const visited = new Set();
+  function follow(specifier, importer) {
+    let candidate;
+    if (specifier.startsWith("@repo/ui/")) {
+      candidate = path.join(
+        uiRoot,
+        specifier.slice("@repo/ui/".length) + ".tsx",
+      );
+    } else if (specifier.startsWith(".")) {
+      candidate = path.resolve(path.dirname(importer), specifier);
+    } else {
+      if (specifier === "@repo/ui" || specifier.startsWith("@/"))
+        throw new Error(
+          `${importer}: unsupported projection alias ${specifier}`,
+        );
+      return; // External npm dependency, declared separately in the Next action.
+    }
+    const options = [candidate];
+    // Match TypeScript's .js-to-source resolution and extensionless imports.
+    if (candidate.endsWith(".js"))
+      options.unshift(
+        candidate.slice(0, -3) + ".ts",
+        candidate.slice(0, -3) + ".tsx",
+      );
+    if (!path.extname(candidate))
+      for (const ext of [".tsx", ".ts", ".jsx", ".js", ".mjs", ".cjs", ".json"])
+        options.push(candidate + ext, path.join(candidate, "index" + ext));
+    const resolved = options.find(
+      (f) => fs.existsSync(f) && fs.statSync(f).isFile(),
+    );
+    if (!resolved) throw new Error(`${importer}: cannot resolve ${specifier}`);
+    if (resolved.startsWith(uiRoot + path.sep)) reachable.add(resolved);
+    else if (!resolved.startsWith(app + path.sep))
+      throw new Error(
+        `${importer}: local import outside declared app/UI sources: ${specifier}`,
+      );
+    queue.push(resolved);
+  }
+  for (const file of queue) {
+    if (visited.has(file)) continue;
+    visited.add(file);
+    // CSS can load assets and other stylesheets. Until that graph is supported,
+    // fail explicitly instead of publishing an incomplete UI projection.
+    if (reachable.has(file) && /\.(css|scss|sass|less)$/.test(file))
+      throw new Error(
+        `${file}: shared UI styles need explicit projection support`,
+      );
     if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
     const tree = parse(file);
     function visit(node) {
+      if (
+        ts.isMetaProperty(node) ||
+        (ts.isCallExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === "require")
+      ) {
+        throw new Error(
+          `${file}: import.meta and require helpers need explicit projection support`,
+        );
+      }
       if (
         ts.isCallExpression(node) &&
         (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
@@ -72,6 +127,11 @@ async function projectUi(app, source, output) {
                 (ts.isIdentifier(parent.expression) &&
                   parent.expression.text === "require")));
       if (ts.isStringLiteralLike(node) && isModuleSpecifier) {
+        if (
+          (ts.isImportDeclaration(parent) && parent.importClause?.isTypeOnly) ||
+          (ts.isExportDeclaration(parent) && parent.isTypeOnly)
+        )
+          return;
         let utilityImport = node.text === "@repo/ui/utils";
         if (node.text.startsWith("@repo/ui/utils/"))
           throw new Error(
@@ -94,7 +154,10 @@ async function projectUi(app, source, output) {
             utilityImport = true;
           }
         }
-        if (!utilityImport) return;
+        if (!utilityImport) {
+          follow(node.text, file);
+          return;
+        }
         if (ts.isImportDeclaration(parent)) {
           const clause = parent.importClause;
           if (clause?.isTypeOnly) return;
@@ -117,12 +180,12 @@ async function projectUi(app, source, output) {
     }
     visit(tree);
   }
+  fs.rmSync(output, { recursive: true, force: true });
   fs.mkdirSync(output, { recursive: true });
-  for (const entry of fs.readdirSync(path.join(source, "src"))) {
-    if (entry !== "utils")
-      fs.cpSync(path.join(source, "src", entry), path.join(output, entry), {
-        recursive: true,
-      });
+  for (const file of [...reachable].sort()) {
+    const target = path.join(output, path.relative(uiRoot, file));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(file, target);
   }
   // Ignore sideEffects:false and PURE annotations. Actual module evaluation
   // remains part of the output, including effects in unused barrel branches.

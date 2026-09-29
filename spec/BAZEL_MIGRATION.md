@@ -1,5 +1,7 @@
 # Bazel migration
 
+These notes describe the original migration. For current commands, cache credentials and deployment, use [the README](../README.md) and [setup guide](BAZEL_DEPLOYMENT.md).
+
 Bóbr has two cache experiments. The TypeScript targets demonstrate dependency
 isolation and identical-output reuse for utility tests. The Next targets add an
 app-specific utility projection so unused barrel exports can change without

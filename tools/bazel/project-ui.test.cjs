@@ -178,3 +178,73 @@ for (const [name, app, utility, error] of [
     await assert.rejects(f.run(), error);
   });
 }
+
+test("unreachable components and their utility imports do not change the projection", async (t) => {
+  const f = fixture(
+    t,
+    'import { used } from "@repo/ui/utils";',
+    "export const used = 1; export const unused = 2;",
+  );
+  const unused = path.join(f.source, "src/unused.tsx");
+  fs.writeFileSync(
+    unused,
+    'import { unused } from "./utils"; export const Widget = () => unused;',
+  );
+  await f.run();
+  const before = fs.readFileSync(path.join(f.output, "utils/index.js"), "utf8");
+  assert.ok(!fs.existsSync(path.join(f.output, "unused.tsx")));
+  fs.writeFileSync(unused, 'throw new Error("must stay unreachable");');
+  fs.writeFileSync(
+    path.join(f.source, "src/utils/index.ts"),
+    "export const used = 1; export const unused = 99;",
+  );
+  await f.run();
+  assert.equal(
+    fs.readFileSync(path.join(f.output, "utils/index.js"), "utf8"),
+    before,
+  );
+});
+
+for (const statement of [
+  'export { Widget } from "./child";',
+  'export const load = () => import("./child");',
+  'import "./child";',
+]) {
+  test(`follows reachable module edges: ${statement}`, async (t) => {
+    const f = fixture(
+      t,
+      'import "@repo/ui/widget";',
+      "globalThis.__effect = 7;",
+    );
+    fs.writeFileSync(path.join(f.source, "src/widget.tsx"), statement);
+    const child =
+      '"use client"; import "./widget"; import "./utils"; export const Widget = () => 1;';
+    fs.writeFileSync(path.join(f.source, "src/child.tsx"), child);
+    await f.run();
+    assert.equal(
+      fs.readFileSync(path.join(f.output, "child.tsx"), "utf8"),
+      child,
+    );
+    assert.match(
+      fs.readFileSync(path.join(f.output, "utils/index.js"), "utf8"),
+      /__effect=7/,
+    );
+    fs.writeFileSync(path.join(f.app, "page.ts"), "export const empty = 1;");
+    await f.run();
+    assert.ok(
+      !fs.existsSync(path.join(f.output, "child.tsx")),
+      "removed imports leave no stale components",
+    );
+  });
+}
+
+for (const code of [
+  'export const asset = new URL("./asset.svg", import.meta.url);',
+  'export const asset = require.resolve("./asset.svg");',
+]) {
+  test(`rejects untracked asset lookup: ${code}`, async (t) => {
+    const f = fixture(t, 'import "@repo/ui/widget";', "");
+    fs.writeFileSync(path.join(f.source, "src/widget.tsx"), code);
+    await assert.rejects(f.run(), /explicit projection support/);
+  });
+}
