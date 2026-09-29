@@ -14,6 +14,8 @@ The findings below describe commit `68d9144`. The follow-up implements these cha
 - The ordinary CI job no longer invokes the fresh-cache mutation experiment. A separate workflow checks build-system changes between successive PR heads, runs weekly and supports manual runs. Five scheduling tests cover follow-up PR commits, initial PRs, build inputs and missing history.
 - CI restores full type checks for `web`, `docs` and `@repo/ui` against original sources. These currently run through pnpm independently of Bazel, so their results are not yet Bazel-cached. Local checks pass for all three packages.
 
+The [follow-up Linux CI run](https://github.com/ernest-oneteam/bobr/actions/runs/36555048582) passed Bazel builds, all three test targets and full application type checks. It restored the cache saved by `68d9144` and reported 267 disk-cache hits during the build. This is evidence of reuse across commits on separate CI runners through the Actions archive. It does not prove HTTP remote caching, macOS-to-Linux artifact portability or deployment reuse.
+
 GitHub's built-in PR path filters use the entire PR diff, which would keep triggering the experiment after a build-system change earlier in the same PR. The new detector compares the event's previous and current heads instead. See [GitHub's diff rules](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#git-diff-comparisons).
 
 Unreachable-component traversal, Playwright coverage, remote-cache integration and Vercel artifact deployment remain open. This follow-up does not complete the deployment goals.
