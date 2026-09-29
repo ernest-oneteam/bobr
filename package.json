@@ -8,13 +8,15 @@
     "check-types": "nx run-many -t check-types",
     "e2e:test": "nx run-many -t build --output-style=stream && tsx scripts/hash-build.ts && nx run-many -t e2e:test --output-style=stream",
     "ci:affected": "tsx scripts/ci-affected.ts",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "test:bazel-next": "python3 scripts/prove-next-invalidation.py"
   },
   "devDependencies": {
     "@nx/eslint": "22.7.5",
     "@nx/js": "22.7.5",
     "@nx/next": "22.7.5",
     "@types/node": "25.9.3",
+    "esbuild": "0.28.1",
     "nx": "22.7.5",
     "prettier": "3.8.4",
     "tsx": "4.22.4",

@@ -1,46 +1,57 @@
-name: CI
+name: CI (Bazel)
+
+# The whole point of this pipeline: let Bazel's content-addressed cache decide
+# what actually needs to run. A PR that touches code used by only one app will
+# restore every unaffected target from the cache seeded by `main` — so CI does
+# real work only for what changed, consistently across branches.
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "bazel"]
   pull_request:
     types: [opened, synchronize]
 
-jobs:
-  e2e:
-    name: E2E Tests
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
-    env:
-      NEXT_PUBLIC_BOBR_WEB_URL: http://localhost:3000
-      NEXT_PUBLIC_BOBR_DOCS_URL: http://localhost:3001
+permissions:
+  contents: read
 
+jobs:
+  bazel:
+    name: Build & test (Bazel)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: "pnpm"
 
-      - name: Derive SHAs for Nx
-        uses: nrwl/nx-set-shas@v4
+      - name: Install Bazelisk
+        run: npm install -g @bazel/bazelisk
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      # The cache key is scoped to the lockfiles; restore-keys let a PR reuse the
+      # cache produced by an earlier run (including main's), which is exactly how
+      # "unaffected targets come from cache across branches" is demonstrated.
+      - name: Cache Bazel disk + repository cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .bazel-cache
+            ~/.bazel-repo
+          key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel.lock', 'pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel.lock', 'pnpm-lock.yaml') }}-
+            bazel-${{ runner.os }}-
 
-      - name: Install Playwright Browsers
-        run: pnpm exec playwright install --with-deps
+      - name: Build everything
+        run: bazel build //... --repository_cache=~/.bazel-repo
 
-      - name: Run E2E Tests
-        run: pnpm run ci:affected
+      # The process summary line (e.g. "12 processes: 10 disk cache hit, 2 ...")
+      # is Bazel's own proof of how much CI work was skipped this run.
+      - name: Test everything
+        run: bazel test //... --repository_cache=~/.bazel-repo
+
+      - name: Prove unused exports skip the real Next builds
+        run: python3 scripts/prove-next-invalidation.py --directory "${{ runner.temp }}/bobr-next-proof"

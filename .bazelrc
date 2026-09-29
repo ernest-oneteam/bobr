@@ -1,0 +1,55 @@
+# --- Local cross-invocation cache (the PoC's proof of reuse) ---------------
+# A persistent disk cache so cache hits survive across separate `bazel` runs —
+# the same role a remote cache plays in CI. This is what lets us prove
+# "change add/index.ts -> docs targets are restored from cache, not re-run".
+build --disk_cache=.bazel-cache
+
+# --- Output / UX ------------------------------------------------------------
+common --color=yes
+build --show_result=20
+test --test_output=errors
+
+# --- TypeScript -------------------------------------------------------------
+# Use tsc as the ts_project transpiler (transpile + type-check in one action).
+# Simplest correct choice; swc would add per-file parallelism but isn't needed
+# for a 2-app PoC.
+common --@aspect_rules_ts//ts:default_to_tsc_transpiler
+
+# --- Hermeticity ------------------------------------------------------------
+# Don't leak the host's full environment into actions; only declared env is used.
+build --incompatible_strict_action_env
+
+# Surface why something rebuilt when diagnosing cache behaviour (off by default;
+# enable per-invocation with --explain=... --verbose_explanations).
+
+# --- Remote cache (the CI scale-out path; OFF by default) -------------------
+# --disk_cache (above) proves cross-invocation reuse on ONE machine. A remote
+# cache is the same content-addressed store shared across machines: a target
+# built once on any CI runner or dev laptop is fetched, never rebuilt, by all
+# the others. At scale this is the single biggest CI win.
+#
+# It's wired but INERT — nothing here applies unless you pass `--config=remote`.
+# Flipping it on takes exactly two things:
+#   1. a backend (defaulted below to BuildBuddy's public endpoint — swap for
+#      NativeLink / bazel-remote / GCS / any CAS by changing one URL), and
+#   2. an API key, kept OUT of git in .bazelrc.auth (see try-import below).
+#
+# Cache errors are non-fatal by default: an unreachable cache degrades to a
+# normal local build, it does not break CI. Next actions can cache the artifact
+# produced for their declared inputs; byte-reproducibility is not required for
+# reuse. Build-time environment and fetched content must be declared first.
+build:remote --remote_cache=grpcs://remote.buildbuddy.io
+build:remote --remote_timeout=600
+build:remote --remote_cache_compression
+
+# Read-only variant for UNTRUSTED builds (e.g. PRs from forks): read the cache
+# for speed, but never write to it, so an untrusted change can't poison it.
+# Trusted builds (main, local dev) use --config=remote and populate the cache.
+build:remote-ro --config=remote
+build:remote-ro --noremote_upload_local_results
+
+# Secrets live here — git-ignored, loaded only if present. Put your key in
+# .bazelrc.auth (copy .bazelrc.auth.example) as:
+#   build:remote --remote_header=x-buildbuddy-api-key=YOUR_KEY
+# try-import is silent when the file is absent, so default builds stay clean.
+try-import %workspace%/.bazelrc.auth

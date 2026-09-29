@@ -1,0 +1,206 @@
+const fs = require("node:fs");
+const path = require("node:path");
+const ts = require("typescript");
+const esbuild = require("esbuild");
+
+// This boundary covers ordinary TypeScript utilities. React modules keep their
+// original files and directives so Next owns client/server compilation.
+async function projectUi(app, source, output) {
+  const metadata = JSON.parse(
+    fs.readFileSync(path.join(source, "package.json"), "utf8"),
+  );
+  if (
+    metadata.exports?.["./utils"] !== "./src/utils/index.ts" ||
+    metadata.exports?.["./*"] !== "./src/*.tsx"
+  ) {
+    throw new Error(
+      "Update the projection when @repo/ui package exports change",
+    );
+  }
+  const names = new Set();
+  let wholeNamespace = false;
+  let imported = false;
+  function files(dir) {
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .flatMap((e) =>
+        e.isDirectory()
+          ? files(path.join(dir, e.name))
+          : [path.join(dir, e.name)],
+      );
+  }
+  function parse(file) {
+    return ts.createSourceFile(
+      file,
+      fs.readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+  }
+  for (const file of [
+    ...files(app),
+    ...files(path.join(source, "src")).filter(
+      (f) => !f.startsWith(path.join(source, "src/utils") + path.sep),
+    ),
+  ]) {
+    if (!/\.[cm]?[jt]sx?$/.test(file)) continue;
+    const tree = parse(file);
+    function visit(node) {
+      if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) &&
+            node.expression.text === "require")) &&
+        (!node.arguments[0] || !ts.isStringLiteralLike(node.arguments[0]))
+      ) {
+        throw new Error(
+          `${file}: computed imports need explicit projection support`,
+        );
+      }
+      if (
+        ts.isStringLiteralLike(node) &&
+        node.text.startsWith("@repo/ui/utils")
+      ) {
+        if (node.text !== "@repo/ui/utils")
+          throw new Error(
+            `${file}: direct utility imports are outside this projection; import the barrel`,
+          );
+        const parent = node.parent;
+        if (ts.isImportDeclaration(parent)) {
+          const clause = parent.importClause;
+          if (clause?.isTypeOnly) return;
+          imported = true;
+          if (clause?.name) names.add("default");
+          const bindings = clause?.namedBindings;
+          if (bindings && ts.isNamedImports(bindings)) {
+            for (const item of bindings.elements)
+              if (!item.isTypeOnly)
+                names.add((item.propertyName || item.name).text);
+          } else if (bindings) wholeNamespace = true;
+        } else if (ts.isExportDeclaration(parent) && parent.isTypeOnly) {
+          return;
+        } else {
+          imported = true;
+          wholeNamespace = true;
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(tree);
+    // Relative imports from copied UI components may consume any utility export.
+    if (
+      file.startsWith(source) &&
+      /(?:from\s*|import\s*\(|require\s*\()\s*['"]\.[^'"]*utils/.test(tree.text)
+    ) {
+      throw new Error(
+        `${file}: relative utility imports need an explicit projection dependency`,
+      );
+    }
+  }
+  fs.mkdirSync(output, { recursive: true });
+  for (const entry of fs.readdirSync(path.join(source, "src"))) {
+    if (entry !== "utils")
+      fs.cpSync(path.join(source, "src", entry), path.join(output, entry), {
+        recursive: true,
+      });
+  }
+  // Ignore sideEffects:false and PURE annotations. Actual module evaluation
+  // remains part of the output, including effects in unused barrel branches.
+  const entry = wholeNamespace
+    ? 'export * from "./index.ts";'
+    : names.size
+      ? `export { ${[...names].sort().join(", ")} } from "./index.ts";`
+      : imported
+        ? 'import "./index.ts";'
+        : "";
+  const utils = path.join(source, "src/utils");
+  const result = await esbuild.build({
+    ...(wholeNamespace
+      ? { entryPoints: [path.join(utils, "index.ts")] }
+      : {
+          stdin: {
+            contents: entry,
+            resolveDir: utils,
+            sourcefile: "entry.ts",
+            loader: "ts",
+          },
+        }),
+    absWorkingDir: utils,
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    preserveSymlinks: true,
+    treeShaking: true,
+    ignoreAnnotations: true,
+    minifyWhitespace: true,
+    sourcemap: false,
+    legalComments: "none",
+    plugins: [
+      {
+        name: "utility-boundary",
+        setup(build) {
+          build.onLoad({ filter: /.*/ }, async (args) => {
+            if (
+              !args.path.startsWith(utils + path.sep) ||
+              !/\.ts$/.test(args.path)
+            ) {
+              throw new Error(
+                `Utility projection supports local .ts modules only: ${args.path}`,
+              );
+            }
+            const tree = parse(args.path);
+            function validate(node) {
+              if (
+                ts.isStringLiteral(node) &&
+                ["use client", "use server"].includes(node.text)
+              ) {
+                throw new Error(
+                  `Keep React/server directives outside projected utilities: ${args.path}`,
+                );
+              }
+              if (
+                (ts.isCallExpression(node) &&
+                  (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+                    (ts.isIdentifier(node.expression) &&
+                      ["require", "eval"].includes(node.expression.text)))) ||
+                ts.isMetaProperty(node)
+              ) {
+                throw new Error(
+                  `Utility projection requires static ESM imports: ${args.path}`,
+                );
+              }
+              ts.forEachChild(node, validate);
+            }
+            validate(tree);
+            return { contents: tree.text, loader: "ts" };
+          });
+        },
+      },
+    ],
+  });
+  if (result.warnings.length)
+    throw new Error("Resolve esbuild warnings before projecting utilities");
+  fs.mkdirSync(path.join(output, "utils"), { recursive: true });
+  fs.writeFileSync(
+    path.join(output, "utils/index.js"),
+    result.outputFiles[0].contents,
+  );
+  // An explicit side-effect declaration prevents Next from dropping retained effects.
+  fs.writeFileSync(
+    path.join(output, "package.json"),
+    JSON.stringify({ name: "@repo/ui", private: true, sideEffects: true }) +
+      "\n",
+  );
+}
+module.exports = projectUi;
+if (require.main === module) {
+  projectUi(...process.argv.slice(2).map((p) => path.resolve(p))).catch(
+    (error) => {
+      console.error(error);
+      process.exitCode = 1;
+    },
+  );
+}

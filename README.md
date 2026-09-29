@@ -1,118 +1,98 @@
-# Nx Build/Test Optimization Demo
+# Bóbr
 
-This repository demonstrates advanced build and test caching optimizations using Nx and Next.js with Turbopack. The goal is to achieve **deterministic builds** and **intelligent test caching** that respects tree-shaking and only invalidates tests when the actual build output changes.
+Bóbr tests whether a TypeScript monorepo can skip work when shared code changes
+without affecting an app. Bazel owns cache keys. Developers write ordinary
+imports, including imports through a barrel.
 
-## Purpose
-
-This project tests whether we can optimize Nx caching to:
-
-1. Avoid unnecessary rebuilds when changes in shared packages don't affect consuming apps
-2. Reuse test cache when build outputs remain identical (even if builds ran)
-3. Leverage tree-shaking to ensure unused code doesn't affect build artifacts
-
-## Architecture
-
-- **Apps**: `apps/web` and `apps/docs` (Next.js applications)
-- **Shared Package**: `packages/ui` (`@repo/ui`) - shared UI components and utilities
-- **E2E Tests**: `packages/web-e2e` and `packages/docs-e2e` - test packages that depend on build outputs
-
-### Current Usage Pattern
-
-- `apps/web` imports `sub` from `@repo/ui/utils`
-- `apps/docs` imports `add` from `@repo/ui/utils`
-- Both apps import from the **barrel file** `@repo/ui/utils/index.ts` which exports both `add` and `sub`
-
-## How It Works
-
-### Tree-Shaking with Barrel Files
-
-The optimization leverages Next.js `optimizePackageImports` and package-level `sideEffects: false` to enable aggressive tree-shaking:
-
-1. **Barrel File Exports**: `packages/ui/src/utils/index.ts` exports both `add` and `sub`
-2. **Selective Imports**: Each app only imports what it uses (`web` → `sub`, `docs` → `add`)
-3. **Tree-Shaking**: Next.js/Turbopack removes unused exports from the final bundle
-4. **Result**: Changing `add.ts` only affects `docs` build output, not `web` build output
-
-### Smart Test Caching
-
-The `scripts/hash-build.ts` script calculates content hashes of build outputs (`.next` directories) and writes them to `build.hash` files. The `e2e:test` task uses these hashes as inputs instead of depending on `^build`:
-
-- If build output changes → hash changes → `build.hash` updates → e2e test cache invalidates
-- If build output is identical → hash unchanged → `build.hash` unchanged → e2e test cache hits
-
-## Testing
-
-### Basic Test: Cache Verification
-
-Run the e2e tests twice in a row:
+## Prove it against Next
 
 ```bash
-pnpm run e2e:test
-pnpm run e2e:test
+pnpm test:bazel-next
+# Or, without installing workspace dependencies:
+python3 scripts/prove-next-invalidation.py
 ```
 
-**Expected Result**:
+The script copies the current working tree into a temporary directory and runs
+real `next build --webpack` actions. It changes files only in that copy, then
+checks Bazel's execution logs and hashes the complete output directories as
+test evidence. Those hashes do not control the build cache.
 
-- **First run**: All builds and tests run (4 tasks total)
-- **Second run**: All tasks use cache (4 cached results)
+| Edit                                                | Web Next build | Docs Next build |
+| --------------------------------------------------- | -------------- | --------------- |
+| Unused export through the utility barrel            | Skipped        | Skipped         |
+| Unused export in the same module as `add`           | Skipped        | Skipped         |
+| Used `add` implementation                           | Executes       | Skipped         |
+| Used `sub` implementation                           | Skipped        | Executes        |
+| Side effect in an unused barrel branch              | Executes       | Executes        |
+| Change that side effect                             | Executes       | Executes        |
+| Delete local build outputs, restore from disk cache | Cache hit      | Cache hit       |
 
-### Advanced Test: Selective Invalidation
+The proof also checks that retained effects appear in Next's browser chunks
+and that Next's declared inputs contain no raw `@repo/ui` source package.
+Each run prints the location of its JSON report and full action logs.
 
-Modify the `add` method in `packages/ui/src/utils/add.ts`:
+## The build boundary
+
+```text
+App imports + complete UI sources
+             |
+       UiProjection, esbuild
+             |
+  App-specific ui_runtime tree
+             |
+       NextBuild, webpack
+             |
+            .next
+```
+
+`UiProjection` reads app imports and bundles the utility barrel with only the
+exports that app requests. It preserves module side effects, even when the
+source package declares `sideEffects: false` or contains `PURE` annotations.
+Namespace imports retain all exports. React components keep their original
+files and directives.
+
+An unused export edit reruns the projection. If it produces identical files,
+Bazel reuses the existing Next artifact. This avoids executing Next at all,
+so Next's nondeterministic output does not enter the comparison. No manifest
+stripping, hand-maintained export hashes, or per-commit build IDs are involved.
+
+Both apps call the shared `next_app_build` macro. Their source still imports
+`@repo/ui/utils`; developers do not list used exports in BUILD files. The
+projection supports local TypeScript utility modules with static ESM imports.
+It rejects direct utility subpaths, computed app imports, dynamic imports inside
+utilities, and React/server directives inside utilities. This is a bounded PoC,
+not a general Next module optimizer. Adding a new Bazel subpackage still requires
+including its sources in the UI source aggregation.
+
+## Commands
 
 ```bash
-# Edit packages/ui/src/utils/add.ts (change the implementation)
-pnpm run e2e:test
+bazel build //...
+bazel test //apps/web:test //apps/docs:test //tools/bazel:project_ui_test
+python3 scripts/prove-next-invalidation.py
 ```
 
-**Expected Result**:
+The older `scripts/bazel-cache-demo.sh` demonstrates the separate TypeScript
+unit-test cache. The Next proof above covers the barrel behavior in the actual
+apps. `pnpm dev` continues to use the source package directly.
 
-1. **Builds**: Both `web` and `docs` rebuild (cache miss - correct, as Nx tracks dependency changes)
-2. **Build Outputs**:
-   - `docs` build output changes (uses `add`)
-   - `web` build output remains identical (doesn't use `add`, tree-shaking removes it)
-3. **E2E Tests**:
-   - `docs-e2e` runs fresh (its `build.hash` changed)
-   - `web-e2e` uses cache (its `build.hash` unchanged)
+Bazel consumes `pnpm-lock.yaml` through rules_js. The projection pins esbuild
+`0.28.1`. CI runs the Next invalidation proof as well as the existing build and
+test steps.
 
-This demonstrates that even though both apps rebuild, only the app that actually uses the changed code has its test cache invalidated.
+## Remaining work
 
-## How Barrel Files Work
+The verified cache restoration uses a local disk CAS on macOS arm64. The actions
+are eligible for the configured remote cache, but this proof does not establish
+artifact portability across machines or deployment environments. Build-time
+configuration and fetched data need declared inputs before using this for apps
+that depend on them.
 
-Barrel files (`index.ts`) re-export multiple modules from a single entry point. With proper tree-shaking:
+Vercel Build Output packaging, deployment reuse, and Playwright checks against
+the deployed artifact are not wired yet. Next's build skips application type
+checking; the existing Bazel logic tests do not replace a full app type check.
 
-- **Without tree-shaking**: Importing `{ sub }` from `@repo/ui/utils` would bundle both `add` and `sub`
-- **With tree-shaking**: Only `sub` is included in the bundle, `add` is eliminated
-
-The key configuration enabling this:
-
-1. **Package config** (`packages/ui/package.json`): `"sideEffects": false`
-2. **Next.js config**: `optimizePackageImports: ["@repo/ui"]`
-3. **Build tool**: Turbopack (`--turbo` flag) for production builds
-
-## Scripts
-
-- `pnpm run e2e:test` - Runs builds, syncs build hashes, then runs e2e tests
-- `pnpm run build` - Builds all apps and packages
-- `pnpm run dev` - Starts development servers
-- `pnpm run lint` - Lints all packages
-- `pnpm run check-types` - Type checks all packages
-- `pnpm run ci:affected` - Runs the smart CI workflow (build + hash + test affected only)
-
-## Nx Commands
-
-```bash
-# View project graph
-pnpm nx graph
-
-# Run affected builds
-pnpm nx affected -t build --base=main
-
-# Show affected projects
-pnpm nx show projects --affected --base=main
-```
-
-## Technical Details
-
-See `spec/OPTIMIZATION_PLAN.md` for the detailed implementation plan and rationale.
-See `spec/HASHING_STRATEGY.md` for the hashing strategy used to calculate the build hash.
+See [the migration notes](spec/BAZEL_MIGRATION.md) for the Bazel graph and cache
+mechanics. The earlier Nx and output-hashing approach remains in
+[the optimization plan](spec/OPTIMIZATION_PLAN.md) and
+[the hashing strategy](spec/HASHING_STRATEGY.md).

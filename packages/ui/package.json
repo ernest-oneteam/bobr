@@ -6,7 +6,7 @@
   "exports": {
     "./*": "./src/*.tsx",
     "./utils": "./src/utils/index.ts",
-    "./utils/*": "./src/utils/*.ts"
+    "./utils/*": "./src/utils/*/index.ts"
   },
   "scripts": {
     "lint": "eslint . --max-warnings 0",

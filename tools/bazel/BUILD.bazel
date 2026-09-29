@@ -1,0 +1,14 @@
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_test")
+
+js_binary(
+    name = "project_ui",
+    entry_point = "project-ui.cjs",
+    data = ["//:node_modules/esbuild", "//:node_modules/typescript"],
+    visibility = ["//visibility:public"],
+)
+
+js_test(
+    name = "project_ui_test",
+    entry_point = "project-ui.test.cjs",
+    data = ["project-ui.cjs", "//:node_modules/esbuild", "//:node_modules/typescript"],
+)
