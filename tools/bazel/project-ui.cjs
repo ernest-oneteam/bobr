@@ -11,7 +11,10 @@ async function projectUi(app, source, output) {
   );
   if (
     metadata.exports?.["./utils"] !== "./src/utils/index.ts" ||
-    metadata.exports?.["./*"] !== "./src/*.tsx"
+    metadata.exports?.["./*"] !== "./src/*.tsx" ||
+    Object.keys(metadata.exports || {}).some(
+      (key) => !["./utils", "./*", "./utils/*"].includes(key),
+    )
   ) {
     throw new Error(
       "Update the projection when @repo/ui package exports change",

@@ -87,8 +87,12 @@ def main():
         if cache_hits is not None:
             assert hits == cache_hits, f"{case}: cache hits {hits}, expected {cache_hits}"
         browser_executed = set()
+        browser_hits = set()
         if args.browser:
             browser_executed = {a["targetLabel"].split("/")[3].split("-")[0] for a in recorded if a.get("mnemonic") == "TestRunner" and not a.get("cacheHit")}
+            browser_hits = {a["targetLabel"].split("/")[3].split("-")[0] for a in recorded if a.get("mnemonic") == "TestRunner" and a.get("cacheHit")}
+            if cache_hits is not None:
+                assert browser_hits == cache_hits, f"{case}: Playwright cache hits {browser_hits}, expected {cache_hits}"
             assert browser_executed == expected, f"{case}: Playwright executed {browser_executed}, expected {expected}"
         for action in next_actions:
             raw = [i["path"] for i in action["inputs"] if "packages/ui/" in i["path"] or "@repo+ui@" in i["path"]]
@@ -101,7 +105,7 @@ def main():
                 for kind in ("next", "vercel"):
                     assert current[app][kind] == previous[app][kind], f"{case}: cached {kind} output changed for {app}"
         previous = current
-        results.append({"case": case, "projection_executed": sorted(projected), "next_executed": sorted(executed), "next_cache_hits": sorted(hits), "browser_executed": sorted(browser_executed), "digests": current})
+        results.append({"case": case, "projection_executed": sorted(projected), "next_executed": sorted(executed), "next_cache_hits": sorted(hits), "browser_executed": sorted(browser_executed), "browser_cache_hits": sorted(browser_hits), "digests": current})
         (base / "results.json").write_text(json.dumps(results, indent=2) + "\n")
         print(f"PASS {case}: Next executed {sorted(executed)}; cache hits {sorted(hits)}", flush=True)
 
@@ -157,6 +161,11 @@ def main():
         subprocess.run(command + ["clean", "--color=no"], cwd=checkout, check=True, stdout=subprocess.DEVNULL)
     run("restore-from-disk-cache" if not remote else "restore-from-remote-cache", set(), set(), APPS)
     if remote:
+        # Simulate a later PR commit on another clean runner. Projection must run
+        # for the edit, then Next and Playwright must restore the older results.
+        unused.write_text(unused.read_text() + "\nexport const anotherUnused = () => 404;\n")
+        command[-1] = f"--output_base={base / 'next-commit-consumer'}"
+        run("fresh-client-unused-export", set(), set(), APPS)
         assert remote.reads > 0 and remote.writes == writes, "Read-only consumer wrote to the remote cache"
         (base / "remote-cache-evidence.json").write_text(json.dumps({"successful_reads": remote.reads, "producer_writes": writes, "consumer_writes": remote.writes - writes}, indent=2) + "\n")
     # Consume utilities only through a component's bare relative import.

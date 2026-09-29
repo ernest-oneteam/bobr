@@ -248,3 +248,20 @@ for (const code of [
     await assert.rejects(f.run(), /explicit projection support/);
   });
 }
+
+// An explicit export overrides a wildcard and can point at a different file.
+test("rejects export-map overrides instead of projecting the wrong module", async (t) => {
+  const f = fixture(t, 'import "@repo/ui/widget";', "");
+  const metadata = JSON.parse(
+    fs.readFileSync(path.join(f.source, "package.json")),
+  );
+  metadata.exports["./widget"] = "./src/another-widget.tsx";
+  fs.writeFileSync(
+    path.join(f.source, "package.json"),
+    JSON.stringify(metadata),
+  );
+  await assert.rejects(
+    f.run(),
+    /Update the projection when @repo\/ui package exports change/,
+  );
+});

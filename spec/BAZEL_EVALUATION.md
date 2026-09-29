@@ -53,7 +53,9 @@ The current proof creates a local HTTP action/content cache and two independent
 Bazel output bases. The consumer has no producer output directory or disk-cache
 entries to reuse. It reads cached Next artifacts and test results without
 uploading results. Each mutation records executed Next and Playwright actions.
-The evidence includes output digests and successful cache read/write counts.
+A third client edits an unused export before building, forcing projection to run
+while Next and Playwright restore the preceding inputs' results. The evidence
+includes output digests and successful cache read/write counts.
 
 This tests the protocol and action portability between local Bazel clients. It
 is not evidence that a hosted cache's credentials, permissions or eviction

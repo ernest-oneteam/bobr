@@ -17,7 +17,8 @@ pnpm test:bazel-next          # Disposable mutation and remote-cache experiment
 
 Install Bazelisk before using the Bazel commands. The browser targets support
 Linux x64 and macOS arm64. Linux also needs Chromium's system libraries, which
-CI installs with `pnpm exec playwright install-deps chromium` from an e2e package.
+CI installs with the pinned Playwright CLI. Locally, run
+`pnpm --filter @repo/web-e2e exec playwright install-deps chromium`.
 Bazel downloads the pinned browser. After updating Playwright, run
 `node scripts/update-chromium.cjs` to generate its version and archive hashes.
 
@@ -82,6 +83,7 @@ trees, and saves JSON evidence with execution logs.
 | Change used `sub`                                   | Reused                      | Execute                      |
 | Add or change a reachable module side effect        | Execute                     | Execute                      |
 | Start a fresh client with only HTTP cache access    | Cache hit                   | Cache hit                    |
+| Edit an unused export on another fresh client       | Cache hit                   | Cache hit                    |
 
 The HTTP fixture uses separate producer and consumer Bazel output bases, no
 disk cache, and a consumer that cannot upload results. This tests the remote
