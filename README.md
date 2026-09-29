@@ -38,7 +38,7 @@ App imports + complete UI sources
              |
   NextBuild, vercel build --standalone
              |
-     .next + vercel_output
+     .next + vercel_output.tar
                     |
            Playwright artifact tests
                     |
@@ -72,7 +72,7 @@ python3 scripts/prove-next-invalidation.py --remote --browser
 
 The proof changes only a disposable copy of the working tree. It checks actual
 `NextBuild` and `TestRunner` actions, compares complete intermediate and output
-trees, and saves JSON evidence with execution logs.
+trees and deployment archive bytes, and saves JSON evidence with execution logs.
 
 | Edit                                                | Web build and browser tests | Docs build and browser tests |
 | --------------------------------------------------- | --------------------------- | ---------------------------- |

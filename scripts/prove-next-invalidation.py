@@ -97,7 +97,10 @@ def main():
         for action in next_actions:
             raw = [i["path"] for i in action["inputs"] if "packages/ui/" in i["path"] or "@repo+ui@" in i["path"]]
             assert not raw, f"Raw UI sources leaked into Next inputs: {raw}"
-        current = {app: {kind: digest_tree(base / 'links/bin/apps' / app / directory) for kind, directory in [("projection", "ui_runtime"), ("next", ".next"), ("vercel", "vercel_output")]} for app in APPS}
+        current = {app: {kind: digest_tree(base / 'links/bin/apps' / app / directory) for kind, directory in [("projection", "ui_runtime"), ("next", ".next")]} for app in APPS}
+        for app in APPS:
+            archive = base / "links/bin/apps" / app / "vercel_output.tar"
+            current[app]["vercel"] = hashlib.sha256(archive.read_bytes()).hexdigest()
         if previous is not None:
             changed = {app for app in APPS if current[app]["projection"] != previous[app]["projection"]}
             assert changed == projection_changed, f"{case}: changed projections {changed}, expected {projection_changed}"

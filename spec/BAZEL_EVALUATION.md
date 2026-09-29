@@ -38,6 +38,12 @@ Tests extract the archive into an isolated directory and execute its handlers
 with a clean environment. Deployment extracts the same archive. The structural
 check rejects escaping symlinks, missing handlers and unmaterialized file maps.
 
+The Linux HTTP experiment also found that the separately declared Vercel tree
+changed after restoration, while both deployment archives retained identical
+SHA-256 digests. The archive is now the sole declared deployment output. The
+proof compares its bytes across fresh clients; browser tests and deployment
+consume that exact file. The staging directory is removed after packaging.
+
 The test adapter handles this PoC's page and API routes. It does not implement
 Vercel's complete routing specification. Hosted preview smoke tests remain a
 separate acceptance step.
@@ -49,7 +55,7 @@ restored the cache from the previous commit and reported 267 disk-cache hits.
 That established cross-commit reuse through the GitHub Actions archive for the
 previous build graph. It did not test HTTP remote caching or Vercel artifacts.
 
-The current proof creates a local HTTP action/content cache and two independent
+The current proof creates a local HTTP action/content cache and three independent
 Bazel output bases. The consumer has no producer output directory or disk-cache
 entries to reuse. It reads cached Next artifacts and test results without
 uploading results. Each mutation records executed Next and Playwright actions.

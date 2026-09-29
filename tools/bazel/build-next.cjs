@@ -46,8 +46,8 @@ const result = spawnSync(
 );
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status || 1);
-// Only publish the output directory. Account metadata and local env files are
-// not deployable artifacts and must never be cached with application output.
+// Stage only deployment output for the archive. Account metadata and local
+// environment files must stay outside cached application output.
 fs.renameSync(
   path.join(appDirectory, ".vercel/output"),
   path.join(appDirectory, "vercel_output"),
@@ -63,8 +63,8 @@ fs.writeFileSync(
   }),
 );
 
-// Archive before Bazel expands tree artifacts into test runfiles. The archive
-// preserves package symlinks, which affect Node's dependency resolution.
+// The archive is the sole deployment output. It preserves package symlinks
+// through remote caching and runfiles, where expanded directories can differ.
 require("tar").c(
   {
     cwd: path.join(appDirectory, "vercel_output"),
@@ -75,3 +75,5 @@ require("tar").c(
   },
   ["."],
 );
+
+fs.rmSync(path.join(appDirectory, "vercel_output"), { recursive: true });

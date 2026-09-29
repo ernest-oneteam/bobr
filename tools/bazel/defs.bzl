@@ -92,7 +92,7 @@ def next_app_build():
             "//conditions:default": _next_env("preview"),
         }),
         mnemonic = "NextBuild",
-        out_dirs = [".next", "vercel_output"],
+        out_dirs = [".next"],
         outs = ["vercel_output.tar"],
         tool = "//tools/bazel:build_next",
         visibility = ["//visibility:public"],
