@@ -77,8 +77,10 @@ unit-test cache. The Next proof above covers the barrel behavior in the actual
 apps. `pnpm dev` continues to use the source package directly.
 
 Bazel consumes `pnpm-lock.yaml` through rules_js. The projection pins esbuild
-`0.28.1`. CI runs the Next invalidation proof as well as the existing build and
-test steps.
+`0.28.1`. Ordinary CI builds and tests with Bazel and checks the full app and UI
+types through pnpm. The eleven-case Next invalidation experiment runs separately
+for build-system changes, weekly, or manually. Follow-up PR commits compare
+against the previous head so app-only edits can skip the experiment.
 
 ## Remaining work
 
@@ -90,7 +92,9 @@ that depend on them.
 
 Vercel Build Output packaging, deployment reuse, and Playwright checks against
 the deployed artifact are not wired yet. Next's build skips application type
-checking; the existing Bazel logic tests do not replace a full app type check.
+checking; CI checks original sources in a separate job. Those type-check results
+are not yet cached by Bazel. Unreachable UI components still cause conservative
+invalidation. See [the evaluation](spec/BAZEL_EVALUATION.md) for the remaining gaps.
 
 See [the migration notes](spec/BAZEL_MIGRATION.md) for the Bazel graph and cache
 mechanics. The earlier Nx and output-hashing approach remains in

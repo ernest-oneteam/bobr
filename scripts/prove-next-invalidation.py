@@ -123,6 +123,21 @@ def main():
     # Remove Bazel's local outputs/action cache. The disk CAS must restore Next.
     subprocess.run(command + ["clean", "--color=no"], cwd=checkout, check=True, stdout=subprocess.DEVNULL)
     run("restore-from-disk-cache", set(), set(), APPS)
+    # Consume utilities only through a component's bare relative import.
+    # This used to emit an empty utility projection and silently lose effects.
+    component = checkout / "packages/ui/src/proof-utils.tsx"
+    component.write_text('import /* comment */ "./utils";\nexport const add = (a: number, b: number) => a + b + 13;\nexport const sub = (a: number, b: number) => a - b - 6;\n')
+    for app in APPS:
+        for file in (checkout / "apps" / app / "app").rglob("*.tsx"):
+            text = file.read_text()
+            if "@repo/ui/utils" in text:
+                file.write_text(text.replace("@repo/ui/utils", "@repo/ui/proof-utils"))
+    run("relative-side-effect-import", APPS, APPS)
+    unused.write_text(unused.read_text().replace("effect-two", "relative-effect-three"))
+    run("changed-relative-side-effect", APPS, APPS)
+    for app in APPS:
+        chunks = base / "links/bin/apps" / app / ".next/static/chunks"
+        assert any("relative-effect-three" in f.read_text() for f in chunks.rglob("*.js")), f"{app}: Next dropped the relative import's side effect"
     print(f"All cases passed. Full action logs and digests: {base / 'results.json'}", flush=True)
 
 

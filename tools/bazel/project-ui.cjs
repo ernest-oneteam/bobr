@@ -17,6 +17,7 @@ async function projectUi(app, source, output) {
       "Update the projection when @repo/ui package exports change",
     );
   }
+  const utils = path.join(source, "src/utils");
   const names = new Set();
   let wholeNamespace = false;
   let imported = false;
@@ -58,15 +59,42 @@ async function projectUi(app, source, output) {
           `${file}: computed imports need explicit projection support`,
         );
       }
-      if (
-        ts.isStringLiteralLike(node) &&
-        node.text.startsWith("@repo/ui/utils")
-      ) {
-        if (node.text !== "@repo/ui/utils")
+      const parent = node.parent;
+      const isModuleSpecifier =
+        parent &&
+        (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)
+          ? parent.moduleSpecifier === node
+          : ts.isExternalModuleReference(parent)
+            ? parent.expression === node
+            : ts.isCallExpression(parent) &&
+              parent.arguments[0] === node &&
+              (parent.expression.kind === ts.SyntaxKind.ImportKeyword ||
+                (ts.isIdentifier(parent.expression) &&
+                  parent.expression.text === "require")));
+      if (ts.isStringLiteralLike(node) && isModuleSpecifier) {
+        let utilityImport = node.text === "@repo/ui/utils";
+        if (node.text.startsWith("@repo/ui/utils/"))
           throw new Error(
             `${file}: direct utility imports are outside this projection; import the barrel`,
           );
-        const parent = node.parent;
+        if (node.text.startsWith(".")) {
+          const resolved = path.resolve(path.dirname(file), node.text);
+          if (resolved === utils || resolved.startsWith(utils + path.sep)) {
+            // These paths still resolve after index.ts becomes index.js.
+            if (
+              ![
+                utils,
+                path.join(utils, "index"),
+                path.join(utils, "index.js"),
+              ].includes(resolved)
+            )
+              throw new Error(
+                `${file}: relative utility imports must use the barrel directory or index.js`,
+              );
+            utilityImport = true;
+          }
+        }
+        if (!utilityImport) return;
         if (ts.isImportDeclaration(parent)) {
           const clause = parent.importClause;
           if (clause?.isTypeOnly) return;
@@ -88,15 +116,6 @@ async function projectUi(app, source, output) {
       ts.forEachChild(node, visit);
     }
     visit(tree);
-    // Relative imports from copied UI components may consume any utility export.
-    if (
-      file.startsWith(source) &&
-      /(?:from\s*|import\s*\(|require\s*\()\s*['"]\.[^'"]*utils/.test(tree.text)
-    ) {
-      throw new Error(
-        `${file}: relative utility imports need an explicit projection dependency`,
-      );
-    }
   }
   fs.mkdirSync(output, { recursive: true });
   for (const entry of fs.readdirSync(path.join(source, "src"))) {
@@ -114,7 +133,6 @@ async function projectUi(app, source, output) {
       : imported
         ? 'import "./index.ts";'
         : "";
-  const utils = path.join(source, "src/utils");
   const result = await esbuild.build({
     ...(wholeNamespace
       ? { entryPoints: [path.join(utils, "index.ts")] }

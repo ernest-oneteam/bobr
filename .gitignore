@@ -53,3 +53,6 @@ yarn-error.log*
 .claude/worktrees
 .nx/polygraph
 .nx/self-healing
+
+# Python test imports
+__pycache__/

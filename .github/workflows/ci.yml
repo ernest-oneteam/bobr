@@ -1,15 +1,10 @@
 name: CI (Bazel)
 
-# The whole point of this pipeline: let Bazel's content-addressed cache decide
-# what actually needs to run. A PR that touches code used by only one app will
-# restore every unaffected target from the cache seeded by `main` — so CI does
-# real work only for what changed, consistently across branches.
-
 on:
   push:
     branches: ["main", "bazel"]
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -22,6 +17,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Test proof scheduling
+        run: python3 -m unittest discover -s scripts -p 'test_next_proof_trigger.py'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -53,5 +51,17 @@ jobs:
       - name: Test everything
         run: bazel test //... --repository_cache=~/.bazel-repo
 
-      - name: Prove unused exports skip the real Next builds
-        run: python3 scripts/prove-next-invalidation.py --directory "${{ runner.temp }}/bobr-next-proof"
+  typecheck:
+    name: Application type checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Check original sources independently of the tree-shaken runtime build.
+      - run: pnpm --filter web --filter docs --filter @repo/ui check-types
