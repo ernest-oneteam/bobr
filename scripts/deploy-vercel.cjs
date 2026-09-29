@@ -23,10 +23,10 @@ const platform = JSON.parse(
 if (
   platform.platform !== "linux" ||
   platform.arch !== "x64" ||
-  platform.node !== 22
+  platform.node !== 24
 ) {
   throw new Error(
-    "Vercel deployment requires the Linux x64 Node 22 CI artifact",
+    "Vercel deployment requires the Linux x64 Node 24 CI artifact",
   );
 }
 fs.writeFileSync(

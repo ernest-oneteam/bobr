@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.changes.outputs.required == 'true'
         with:
-          node-version: 22
+          node-version-file: .nvmrc
       - run: npm install -g @bazel/bazelisk
         if: steps.changes.outputs.required == 'true'
       - name: Install browser system libraries

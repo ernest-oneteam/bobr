@@ -11,9 +11,18 @@ See Vercel's [build command](https://vercel.com/docs/cli/build) and
 
 The `0xVentures` team owns [bobr-web](https://vercel.com/0xventures/bobr-web)
 for `apps/web` and [bobr-docs](https://vercel.com/0xventures/bobr-docs) for
-`apps/docs`. Both use Node 22, matching the checked-in `vercel-build.json`.
+`apps/docs`. Both use Node 24, matching the checked-in `vercel-build.json`.
 Neither project has a Git repository connection, so pushes do not trigger
 independent Vercel builds. Keep deployment on the Actions path.
+
+Bazel, CI and local development pin Node 24.21.0 through `.nvmrc` and
+`.tool-versions`. Vercel selects the major version and manages its own patch
+updates. To update our Node 24 release, run
+`node scripts/update-node.mjs VERSION`, then `asdf install` or `nvm install`.
+The script fetches official Node checksums and generates the Bazel toolchain
+configuration. Commit the generated files with the updated Bazel lockfile after
+running the tests. A major upgrade also needs matching Vercel project settings,
+both `vercel-build.json` files and the deployment script's runtime check.
 
 The local Vercel CLI authenticated to the intended account and created these
 projects. Its credentials are separate from the Vercel connector and GitHub
@@ -36,7 +45,7 @@ same-repository PRs build previews. Fork PRs build and test without deployment
 credentials. GitHub environments are named `preview` and `production`.
 
 The deployment script checks the artifact target and requires Linux x64 with
-Node 22. Preview and production are separate Bazel configurations through
+Node 24. Preview and production are separate Bazel configurations through
 `--define=deploy_env=preview` and `--define=deploy_env=production`. A developer's
 macOS artifact cannot be uploaded as a Linux production build by this script.
 

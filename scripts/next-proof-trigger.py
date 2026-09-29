@@ -17,6 +17,7 @@ PATTERNS = (
     "packages/*-e2e/*",
     "MODULE.bazel*",
     ".bazel*",
+    ".nvmrc",
     "BUILD.bazel",
     "*/BUILD.bazel",
     "pnpm-lock.yaml",

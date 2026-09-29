@@ -25,7 +25,7 @@ class ProofTriggerTest(unittest.TestCase):
 
     def test_build_inputs_trigger_proof(self):
         event = {"before": "old", "after": "new"}
-        for name in ["package.json", "apps/web/BUILD.bazel", "pnpm-lock.yaml", "tools/bazel/project-ui.cjs", "scripts/prove-next-invalidation.py", "scripts/next-proof-trigger.py"]:
+        for name in [".nvmrc", "package.json", "apps/web/BUILD.bazel", "pnpm-lock.yaml", "tools/bazel/project-ui.cjs", "scripts/prove-next-invalidation.py", "scripts/next-proof-trigger.py"]:
             with self.subTest(name=name):
                 self.assertTrue(trigger.needs_proof("push", event, lambda *_: [name]))
 

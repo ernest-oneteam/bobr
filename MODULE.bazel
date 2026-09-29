@@ -26,10 +26,9 @@ bazel_dep(name = "rules_nodejs", version = "6.7.4")
 bazel_dep(name = "aspect_gazelle_prebuilt", version = "0.0.20", dev_dependency = True)
 
 # --- Node toolchain ---------------------------------------------------------
-# rules_js registers a default Node 22 LTS toolchain. We deliberately do NOT pin
-# the repo's Node 25.4.0: rules_nodejs ships prebuilt toolchains only for Node
-# 20/22/24, so 25.x is not available without a hand-rolled custom toolchain.
-# Node 22 LTS is the safe, zero-config choice and runs Next.js 16 fine.
+# Use the same pinned Node version in Bazel, local development and CI.
+# scripts/update-node.mjs retrieves official checksums for all supported hosts.
+include("//tools/bazel:node.MODULE.bazel")
 
 # --- Consume the existing pnpm-lock.yaml ------------------------------------
 npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")

@@ -24,6 +24,7 @@ aspect_gazelle(
 
 # Files referenced by MODULE.bazel extensions and downstream rules.
 exports_files([
+    ".nvmrc",
     "package.json",
     "pnpm-workspace.yaml",
     "pnpm-lock.yaml",
