@@ -1,23 +1,24 @@
 # Bazel goal evaluation
 
-Updated on 2026-09-29 for PR #6. The acceptance criteria are unchanged: unused
+Updated on 2026-09-30 for PR #6. The acceptance criteria are unchanged: unused
 exports must leave intermediate inputs unchanged, used exports and effects must
 invalidate correctly, developers should not maintain hashes, consecutive PR
 commits should reuse work, and Vercel should deploy the tested artifact.
 
 ## Current implementation
 
-| Goal                                 | Implementation and evidence boundary                                                                                                                                                                              |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Skip Next for unused utility exports | The mutation experiment checks actual Next actions and unchanged projection bytes for barrel and same-module exports.                                                                                             |
-| Invalidate used exports and effects  | The experiment covers `add`, `sub`, unused barrel branches with effects and relative side-effect imports.                                                                                                         |
-| Ignore unreachable UI components     | Traversal starts at app imports. Unreachable files and their utility imports do not enter Next inputs. Reachable React modules remain whole files.                                                                |
-| Reuse nondeterministic Next output   | Bazel reuses the stored action output when projected inputs match. It never compares two independently rebuilt Next outputs to decide reuse.                                                                      |
-| Share build results                  | Normal package commands and CI use the shared-cache wrapper. The proof exercises HTTP cache restoration between independent clients with disk caching disabled. Hosted-provider access still needs configuration. |
-| Preserve browser coverage            | Two Bazel targets test the deployment archive, covering hydration, interaction, navigation, API and 404 behavior.                                                                                                 |
-| Deploy the tested artifact           | Bazel creates the Vercel archive; CI tests, uploads and deploys it with `--prebuilt`. Hosted deployment remains pending the intended Vercel account.                                                              |
-| Avoid manual hashes                  | Bazel owns action keys. The browser pin updater generates download hashes. Evidence hashes are assertions, not build inputs maintained by developers.                                                             |
-| Keep source checks                   | CI type-checks the original app and UI sources separately. These type-check results are not yet Bazel-cached.                                                                                                     |
+| Goal                                 | Implementation and evidence boundary                                                                                                                                                                                  |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skip Next for unused utility exports | The mutation experiment checks actual Next actions and unchanged projection bytes for barrel and same-module exports.                                                                                                 |
+| Invalidate used exports and effects  | The experiment covers `add`, `sub`, unused barrel branches with effects and relative side-effect imports.                                                                                                             |
+| Ignore unreachable UI components     | Traversal starts at app imports. Unreachable files and their utility imports do not enter Next inputs. Reachable React modules remain whole files.                                                                    |
+| Reuse nondeterministic Next output   | Bazel reuses the stored action output when projected inputs match. It never compares two independently rebuilt Next outputs to decide reuse.                                                                          |
+| Share build results                  | Normal package commands and CI use the shared-cache wrapper. Fresh clients restore Next and browser actions through the actual Caddy/bazel-remote stack with disk caching disabled. AWS provisioning remains pending. |
+| Preserve browser coverage            | Two Bazel targets test the deployment archive, covering hydration, interaction, navigation, API and 404 behavior.                                                                                                     |
+| Deploy the tested artifact           | Bazel creates the Vercel archive; CI tests, uploads and deploys it with `--prebuilt`. The intended Vercel projects exist; hosted deployment awaits its CI credential.                                                 |
+| Avoid duplicate deployments          | Reuse checks match archive bytes, settings, environment versions and PR scope against a ready deployment. Unit tests pass; hosted verification remains pending.                                                       |
+| Avoid manual hashes                  | Bazel owns action keys. The browser pin updater generates download hashes. Evidence hashes are assertions, not build inputs maintained by developers.                                                                 |
+| Keep source checks                   | CI type-checks the original app and UI sources separately. These type-check results are not yet Bazel-cached.                                                                                                         |
 
 The code addresses the four open implementation areas. Hosted cache access,
 Vercel routing and production deployment are not established by local tests.
@@ -72,6 +73,13 @@ The expensive mutation experiment runs separately from ordinary CI. Its trigger
 compares successive PR heads, preventing an earlier build-system change from
 forcing the experiment on every later app-only commit.
 
+The self-hosted cache acceptance test uses the deployment's pinned Caddy and
+`bazel-remote` images. It checks anonymous rejection, server-enforced reader
+permissions, fresh-client remote hits and reuse after an unused barrel edit.
+The full macOS run passes with identical deployment archives across all three
+clients. This verifies the container configuration, while AWS bootstrap, public
+DNS/TLS, availability and capacity still need validation on the chosen VM.
+
 ## Remaining maintenance limits
 
 The projection supports this repository's export map and static module layout.
@@ -106,6 +114,7 @@ behavior of both apps.
 
 Use consecutive PR commits to check unused-export reuse, used-export rebuilding
 and effect invalidation through the configured provider. Check a clean Linux
-client with local caches disabled. An unaffected commit may still create a new
-Vercel deployment record using the cached archive. Reusing an existing deployment
-URL is not implemented.
+client with local caches disabled. Confirm that an unaffected commit reuses the
+existing deployment URL and that artifact or runtime configuration changes create
+a new deployment. Production reuse must refer to the current deployment after a
+rollback. Missing environment revision metadata deliberately disables reuse.

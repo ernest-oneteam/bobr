@@ -99,6 +99,12 @@ account and GitHub configuration. CI packages the tested Linux artifact and
 can deploy it without another build. Deployment stays disabled until the
 intended Vercel account, projects and credentials are configured.
 
+The selected shared cache is self-hosted on AWS. Its
+[EC2 and Docker setup](infra/bazel-cache/README.md) includes automatic HTTPS,
+separate reader/writer credentials and an acceptance test using fresh clients.
+AWS provisioning still needs an account and cache domain. Deployment reuse is
+implemented but still needs verification against the hosted Vercel projects.
+
 This remains a bounded PoC. It shakes utility exports, not individual exports
 inside reachable React component modules. Namespace imports retain all utility
 exports. Unsupported computed imports, asset lookups, utility leaf imports and
