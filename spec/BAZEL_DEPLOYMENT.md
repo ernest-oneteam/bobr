@@ -57,7 +57,11 @@ key. Runtime secrets belong in Vercel, not cached build artifacts.
 
 ## Configure the shared cache
 
-Use a Bazel-compatible HTTPS or gRPC TLS cache. The wrapper accepts these values:
+Bóbr's selected cache is self-hosted `bazel-remote` on AWS EC2, behind Caddy for
+HTTPS and separate reader/writer access. Follow the
+[server setup](../infra/bazel-cache/README.md) to provision it and run acceptance.
+AWS account, domain and hosted validation are still pending. The wrapper also
+accepts other Bazel-compatible HTTPS or gRPC TLS caches:
 
 | Setting                     | Kind in GitHub    | Purpose                                                                                  |
 | --------------------------- | ----------------- | ---------------------------------------------------------------------------------------- |
@@ -96,5 +100,14 @@ edge features or runtime settings. Production deployment and hosted smoke tests
 remain pending until the deployment credential is configured and CI deploys.
 
 An unaffected commit reuses the artifact and browser result. The deployment
-job can still create a deployment record for that commit using the same bytes.
-It does not currently deduplicate deployment records or reuse an existing URL.
+script also searches for a successful deployment with the same archive, project
+settings, environment versions, CLI version and branch/PR scope. It reuses that
+URL when the record still exists and is ready. Production reuse requires the
+current production deployment, so a rollback cannot accidentally reuse an older
+record. Missing environment version metadata disables reuse. Set
+`VERCEL_FORCE_DEPLOY=1` as an Actions variable to force a new deployment.
+
+Deployment jobs serialize per app and ref and skip superseded commits before
+uploading. Project metadata can conservatively cause a new deployment even when
+the artifact matches. These checks have unit coverage; consecutive hosted
+deployments still need verification with the Vercel deployment credential.

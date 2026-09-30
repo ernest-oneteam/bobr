@@ -35,6 +35,8 @@ def main():
         command = [os.environ.get("BAZEL_BIN", "bazel")]
         if os.environ.get("BAZEL_OUTPUT_USER_ROOT"):
             command.append("--output_user_root=" + os.environ["BAZEL_OUTPUT_USER_ROOT"])
+        if os.environ.get("BAZEL_OUTPUT_BASE"):
+            command.append("--output_base=" + os.environ["BAZEL_OUTPUT_BASE"])
         # An explicit user rc replaces ~/.bazelrc; workspace .bazelrc still loads.
         command += ["--bazelrc=" + str(rc)] + sys.argv[1:]
         return subprocess.call(command)
